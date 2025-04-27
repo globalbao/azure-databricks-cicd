@@ -1,9 +1,10 @@
 # Azure Databricks CICD
 
-This repo contains example Azure Databricks CICD patterns using Databricks CLI and YAML pipelines
+This repo contains example Azure Databricks CICD patterns using Databricks CLI and YAML pipelines.
+
+I also wrote a blog post [Managing Azure Databricks Workspace IP Access Lists via CICD](https://jloudon.com/cloud/Managing-Azure-Databricks-Workspace-IP-Access-Lists-via-CICD/) to explain some things used in this repo.
 
 ![devopspipelinelifecycle](devops-pipeline-lifecycle-stages.png)
-
 
 ## Databricks Workspace Authentication
 
@@ -81,7 +82,6 @@ Key References:
 | operation         | string | yes always                               | `"CREATE"` or `"UPDATE"` or `"DELETE"`     |
 
 ### How To
-
 
 **Enable or Disable IP access lists**
 
