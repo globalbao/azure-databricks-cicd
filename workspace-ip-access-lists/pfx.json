@@ -1,0 +1,37 @@
+[
+  {
+    "label": "ALLOW_EXAMPLE_CORP_NETWORK1",
+    "list_type": "ALLOW",
+    "ip_addresses": ["192.168.0.0/23"],
+    "operation": "CREATE"
+  },
+  {
+    "label": "ALLOW_EXAMPLE_CORP_NETWORK2",
+    "list_type": "ALLOW",
+    "ip_addresses": ["172.0.0.0/23"],
+    "operation": "CREATE"
+  },
+  {
+    "label": "ALLOW_EXAMPLE_EXTERNAL_PUBLIC_IPS",
+    "list_type": "ALLOW",
+    "ip_addresses": [
+      "123.123.123.123/32",
+      "123.123.123.123/32",
+      "123.123.123.123/32",
+      "123.123.123.123/32"
+    ],
+    "operation": "CREATE"
+  },
+  {
+    "label": "ALLOW_EXAMPLE_AZURE_FW_PUBLIC_IPS",
+    "list_type": "ALLOW",
+    "ip_addresses": ["123.123.123.123/32", "123.123.123.123/32"],
+    "operation": "CREATE"
+  },
+  {
+    "label": "ALLOW_EXAMPLE_AZURE_DATABRICKS_PFX_SUBNETS",
+    "list_type": "ALLOW",
+    "ip_addresses": ["10.0.0.0/25", "10.0.100.0/25"],
+    "operation": "CREATE"
+  }
+]

@@ -1,0 +1,79 @@
+# Build template for Azure Databricks CICD
+
+parameters:
+  - name: BUNDLE_TARGET # should match the target name in your databricks.yml file e.g. 'dev'
+    type: string
+  - name: ADB_HOST # the per-workspace URL of your Azure Databricks workspace, beginning with https://, for example https://adb-<workspace-id>.<random-number>.azuredatabricks.net. Do not include the trailing / after .net
+    type: string
+  - name: ADB_CLIENT_ID # the Azure Databricks Client ID for the Databricks Managed service principal
+    type: string
+  - name: ADB_CLIENT_SECRET # the Azure Databricks OAuth secret for the Databricks Managed service principal
+    type: string
+  - name: DATABRICKS_SDK_VERSION # the version of the Databricks SDK to install https://pypi.org/project/databricks-sdk/#history
+    type: string
+  - name: ADO_ENVIRONMENT # the Azure DevOps environment
+    type: string
+  - name: AGENT_POOL # the name of the Azure DevOps agent pool to use
+    type: string
+  - name: DATABRICKS_LOG_LEVEL #Logging level for Databricks CLI e.g. 'debug', 'warn', 'info' https://docs.databricks.com/en/dev-tools/cli/troubleshooting.html
+    type: string
+    default: "warn"
+
+
+jobs:
+  - deployment: build
+    environment: "${{ parameters.ADO_ENVIRONMENT }}"
+    pool: ${{ parameters.AGENT_POOL }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+              fetchDepth: 1
+              clean: true
+
+            ## replace tokens in select files with Azure DevOps variable group values containing secrets and other variables
+            - task: qetza.replacetokens.replacetokens-task.replacetokens@6
+              displayName: Replace tokens in **/*.yml
+              inputs:
+                sources: "**/*.yml"
+                escape: off
+                tokenPattern: doubleunderscores
+
+            # install Python & Databricks prereqs
+            - bash: |
+                sudo apt update && sudo apt upgrade -y
+                sudo apt install -y python3-pip
+                sudo apt install -y python3-venv
+                sudo apt install jq -y
+                sudo apt install unzip -y
+                sudo pip3 install pytest
+                sudo pip3 install wheel
+                sudo pip3 install databricks-sdk==${{ parameters.DATABRICKS_SDK_VERSION }}
+                curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sudo sh
+                python3 --version
+                pip3 --version
+                databricks -v
+              displayName: "Install Python & Databricks"
+
+            # Check Databricks IP Access Lists (see https://docs.databricks.com/en/security/network/front-end/ip-access-list-workspace.html)
+            - bash: |
+                echo "Listing existing Databricks Workspace IP Access Lists"
+                databricks ip-access-lists list -o json -t ${{ parameters.BUNDLE_TARGET }} --log-level ${{ parameters.DATABRICKS_LOG_LEVEL }}
+
+                echo "Checking Databricks Workspace IP Access Lists enablement status"
+                databricks workspace-conf get-status enableIpAccessLists -t ${{ parameters.BUNDLE_TARGET }} --log-level ${{ parameters.DATABRICKS_LOG_LEVEL }}
+              env:
+                DATABRICKS_HOST: ${{ parameters.ADB_HOST }}
+                DATABRICKS_CLIENT_ID: ${{ parameters.ADB_CLIENT_ID }}
+                DATABRICKS_CLIENT_SECRET: ${{ parameters.ADB_CLIENT_SECRET }}
+              displayName: "Checking ${{ parameters.BUNDLE_TARGET }} Databricks IP Access Lists"
+
+            # Validate Databricks Bundle
+            - bash: |
+                databricks bundle validate -t ${{ parameters.BUNDLE_TARGET }} --log-level ${{ parameters.DATABRICKS_LOG_LEVEL }}
+              env:
+                DATABRICKS_HOST: ${{ parameters.ADB_HOST }}
+                DATABRICKS_CLIENT_ID: ${{ parameters.ADB_CLIENT_ID }}
+                DATABRICKS_CLIENT_SECRET: ${{ parameters.ADB_CLIENT_SECRET }}
+              displayName: "Validate ${{ parameters.BUNDLE_TARGET }} Databricks Bundle"

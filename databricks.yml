@@ -1,0 +1,57 @@
+# This is a Databricks asset bundle definition for adb_init.
+# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+bundle:
+  name: adb_init
+  
+include:
+  - placeholder-for-init-yml-file
+  
+targets:
+  dev:
+    mode: production
+    default: true
+    run_as:
+      service_principal_name: "__ADB_DEV_SPN_ID__"
+    workspace:
+      host: "__ADB_DEV_HOST__"
+      root_path: /Workspace/${bundle.name}
+      auth_type: oauth-m2m
+    sync: 
+      exclude:
+        - devops
+
+  uat:
+    mode: production
+    run_as:
+      service_principal_name: "__ADB_UAT_SPN_ID__"
+    workspace:
+      host: "__ADB_UAT_HOST__"
+      root_path: /Workspace/${bundle.name}
+      auth_type: oauth-m2m
+    sync: 
+      exclude:
+        - devops  
+        
+  pfx:
+    mode: production
+    run_as:
+      service_principal_name: "__ADB_PFX_SPN_ID__"
+    workspace:
+      host: "__ADB_PFX_HOST__"
+      root_path: /Workspace/${bundle.name}
+      auth_type: oauth-m2m
+    sync: 
+      exclude:
+        - devops
+
+  prd:
+    mode: production
+    run_as:
+      service_principal_name: "__ADB_PRD_SPN_ID__"
+    workspace:
+      host: "__ADB_PRD_HOST__"
+      root_path: /Workspace/${bundle.name}
+      auth_type: oauth-m2m
+    sync: 
+      exclude:
+        - devops

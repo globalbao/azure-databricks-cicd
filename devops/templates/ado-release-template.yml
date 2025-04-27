@@ -1,0 +1,156 @@
+# Release template for Azure Databricks CICD
+
+parameters:
+  - name: BUNDLE_TARGET # should match the target name in your databricks.yml file e.g. 'dev'
+    type: string
+  - name: ADB_HOST # the per-workspace URL of your Azure Databricks workspace, beginning with https://, for example https://adb-<workspace-id>.<random-number>.azuredatabricks.net. Do not include the trailing / after .net
+    type: string
+  - name: ADB_CLIENT_ID # the Azure Databricks Client ID for the Databricks Managed service principal
+    type: string
+  - name: ADB_CLIENT_SECRET # the Azure Databricks OAuth secret for the Databricks Managed service principal
+    type: string
+  - name: ADB_ENABLE_IP_ACCESS_LISTS # whether to enable IP access lists for the Databricks workspace (true or false)
+    type: boolean
+  - name: DATABRICKS_SDK_VERSION # the version of the Databricks SDK to install https://pypi.org/project/databricks-sdk/#history
+    type: string
+  - name: ADO_ENVIRONMENT # the Azure DevOps environment
+    type: string
+  - name: AGENT_POOL # the name of the Azure DevOps agent pool to use
+    type: string
+  - name: ADB_JOB_NAMES # the names of the Databricks jobs to run
+    type: string
+    default: ""
+  - name: DATABRICKS_LOG_LEVEL #Logging level for Databricks CLI e.g. 'debug', 'warn', 'info' https://docs.databricks.com/en/dev-tools/cli/troubleshooting.html
+    type: string
+    default: "warn"
+
+jobs:
+  - deployment: release
+    environment: "${{ parameters.ADO_ENVIRONMENT }}"
+    pool: ${{ parameters.AGENT_POOL }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+              fetchDepth: 1
+              clean: true
+
+            ## replace tokens in select files with Azure DevOps variable group values containing secrets and other variables
+            - task: qetza.replacetokens.replacetokens-task.replacetokens@6
+              displayName: Replace tokens in **/*.yml
+              inputs:
+                sources: "**/*.yml"
+                escape: off
+                tokenPattern: doubleunderscores
+
+            # install Python & Databricks prereqs
+            - bash: |
+                sudo apt update && sudo apt upgrade -y
+                sudo apt install -y python3-pip
+                sudo apt install -y python3-venv
+                sudo apt install jq -y
+                sudo apt install unzip -y
+                sudo pip3 install pytest
+                sudo pip3 install wheel
+                sudo pip3 install databricks-sdk==${{ parameters.DATABRICKS_SDK_VERSION }}
+                curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sudo sh
+                python3 --version
+                pip3 --version
+                databricks -v
+              displayName: "Install Python & Databricks"
+
+            # Deploy Databricks Bundle
+            - bash: |
+                databricks bundle deploy -t ${{ parameters.BUNDLE_TARGET }} --log-level ${{ parameters.DATABRICKS_LOG_LEVEL }}
+              env:
+                DATABRICKS_HOST: ${{ parameters.ADB_HOST }}
+                DATABRICKS_CLIENT_ID: ${{ parameters.ADB_CLIENT_ID }}
+                DATABRICKS_CLIENT_SECRET: ${{ parameters.ADB_CLIENT_SECRET }}
+              displayName: "Deploy ${{ parameters.BUNDLE_TARGET }} Databricks Bundle"
+
+            # Read workspace-ip-access-lists/${{ parameters.BUNDLE_TARGET }}.json file, loop through JSON objects and if the 'operation' property value is 'create' then create Databricks IP Access Lists for each object matched
+            - bash: |
+                json_file="workspace-ip-access-lists/${{ parameters.BUNDLE_TARGET }}.json"
+
+                jq -c '.[]' "$json_file" | while IFS= read -r json_object_creation; do
+                    operation=$(echo $json_object_creation | jq -r '.operation')
+                    if [[ ${operation,,} == "create"* ]]; then
+                        echo "Creating new specified Databricks IP Access List: $json_object_creation"
+                        databricks ip-access-lists create --json "$json_object_creation" -t "${{ parameters.BUNDLE_TARGET }}" --log-level "${{ parameters.DATABRICKS_LOG_LEVEL }}" || true
+                    fi
+                done
+              env:
+                DATABRICKS_HOST: ${{ parameters.ADB_HOST }}
+                DATABRICKS_CLIENT_ID: ${{ parameters.ADB_CLIENT_ID }}
+                DATABRICKS_CLIENT_SECRET: ${{ parameters.ADB_CLIENT_SECRET }}
+              displayName: "Create new specified ${{ parameters.BUNDLE_TARGET }} Databricks IP Access Lists from JSON file"
+
+            # Read workspace-ip-access-lists/${{ parameters.BUNDLE_TARGET }}.json file, loop through JSON objects and if the 'operation' property value is 'update' then update Databricks IP Access Lists for each object matched
+            - bash: |
+                json_file="workspace-ip-access-lists/${{ parameters.BUNDLE_TARGET }}.json"
+
+                jq -c '.[]' "$json_file" | while IFS= read -r json_object_update; do
+                    operation=$(echo $json_object_update | jq -r '.operation')
+                    ip_access_list_id=$(echo $json_object_update | jq -r '.ip_access_list_id')
+                    if [[ ${operation,,} == "update"* ]]; then
+                        echo "Updating existing specified Databricks IP Access List: $json_object_update"
+                        databricks ip-access-lists update "$ip_access_list_id" --json "$json_object_update" -t "${{ parameters.BUNDLE_TARGET }}" --log-level "${{ parameters.DATABRICKS_LOG_LEVEL }}" || true
+                    fi
+                done
+              env:
+                DATABRICKS_HOST: ${{ parameters.ADB_HOST }}
+                DATABRICKS_CLIENT_ID: ${{ parameters.ADB_CLIENT_ID }}
+                DATABRICKS_CLIENT_SECRET: ${{ parameters.ADB_CLIENT_SECRET }}
+              displayName: "Update existing specified ${{ parameters.BUNDLE_TARGET }} Databricks IP Access Lists from JSON file"
+
+            # Read workspace-ip-access-lists/${{ parameters.BUNDLE_TARGET }}.json file, loop through JSON objects and if the 'operation' property value is 'delete' then delete Databricks IP Access Lists for each object matched
+            - bash: |
+                json_file="workspace-ip-access-lists/${{ parameters.BUNDLE_TARGET }}.json"
+
+                jq -c '.[]' "$json_file" | while IFS= read -r json_object_delete; do
+                    operation=$(echo $json_object_delete | jq -r '.operation')
+                    ip_access_list_id=$(echo $json_object_delete | jq -r '.ip_access_list_id')
+                    if [[ ${operation,,} == "delete"* ]]; then
+                        echo "Deleting specified Databricks IP Access List: $json_object_delete"
+                        databricks ip-access-lists delete "$ip_access_list_id" -t "${{ parameters.BUNDLE_TARGET }}" --log-level "${{ parameters.DATABRICKS_LOG_LEVEL }}" || true
+                    fi
+                done
+              env:
+                DATABRICKS_HOST: ${{ parameters.ADB_HOST }}
+                DATABRICKS_CLIENT_ID: ${{ parameters.ADB_CLIENT_ID }}
+                DATABRICKS_CLIENT_SECRET: ${{ parameters.ADB_CLIENT_SECRET }}
+              displayName: "Delete existing specified ${{ parameters.BUNDLE_TARGET }} Databricks IP Access Lists from JSON file"
+
+
+            # Configure Databricks IP Access Lists (see https://docs.databricks.com/en/security/network/front-end/ip-access-list-workspace.html)
+            - bash: |
+                echo "Listing existing Databricks Workspace IP Access Lists"
+                databricks ip-access-lists list -o json -t ${{ parameters.BUNDLE_TARGET }} --log-level ${{ parameters.DATABRICKS_LOG_LEVEL }}
+
+                echo "Enabling Databricks Workspace IP Access Lists if pipeline parameter is true"
+                databricks workspace-conf set-status enableIpAccessLists --json '{"enableIpAccessLists": "${{ parameters.ADB_ENABLE_IP_ACCESS_LISTS }}"}' -t ${{ parameters.BUNDLE_TARGET }} --log-level ${{ parameters.DATABRICKS_LOG_LEVEL }}
+
+                echo "Checking Databricks Workspace IP Access Lists enablement status"
+                databricks workspace-conf get-status enableIpAccessLists -t ${{ parameters.BUNDLE_TARGET }} --log-level ${{ parameters.DATABRICKS_LOG_LEVEL }}
+              env:
+                DATABRICKS_HOST: ${{ parameters.ADB_HOST }}
+                DATABRICKS_CLIENT_ID: ${{ parameters.ADB_CLIENT_ID }}
+                DATABRICKS_CLIENT_SECRET: ${{ parameters.ADB_CLIENT_SECRET }}
+              displayName: "Configure ${{ parameters.BUNDLE_TARGET }} Databricks IP Access Lists"
+
+            # Run Databricks Jobs defined in parameters.ADB_JOB_NAMES
+            - bash: |
+                IFS=',' read -r -a JOB_NAMES <<< "${{ parameters.ADB_JOB_NAMES }}"
+                echo "##vso[task.setvariable variable=JOB_NAMES;isOutput=true]${JOB_NAMES[*]}"
+                echo "JOB_NAMES=${JOB_NAMES[*]}"
+                for i in $JOB_NAMES 
+                do
+                  echo "Running Databricks Job: $i"
+                  databricks bundle run -t ${{ parameters.BUNDLE_TARGET }} $i --log-level ${{ parameters.DATABRICKS_LOG_LEVEL }}
+                done
+              env:
+                DATABRICKS_HOST: ${{ parameters.ADB_HOST }}
+                DATABRICKS_CLIENT_ID: ${{ parameters.ADB_CLIENT_ID }}
+                DATABRICKS_CLIENT_SECRET: ${{ parameters.ADB_CLIENT_SECRET }}
+              displayName: "Run Databricks Jobs"
